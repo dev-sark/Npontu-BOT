@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 from flask_caching import Cache
 import logging
 from google_auth_oauthlib.flow import Flow
+from flask_cors import CORS   # Import CORS
+
+# Routes Blueprint
+bp = Blueprint('routes', __name__)  # Use __name__ instead of name
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -33,7 +37,7 @@ class Config:
     # Use absolute path for client_secret.json
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get directory of the current script
     CLIENT_SECRET_FILE = os.path.join(BASE_DIR, "client_secret.json")  # Combine with the file name
-    OAUTH_REDIRECT_URI = "http://127.0.0.1:5000/callback"
+    OAUTH_REDIRECT_URI = "https://jackal-suitable-manatee.ngrok-free.app"
     OAUTH_SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email']
 
 
@@ -68,7 +72,22 @@ def connect_rabbitmq():
             logging.warning(f"Failed to connect to RabbitMQ: {e}. Retrying...")
             attempts -= 1
     return None
+# Timeout Integration
+class TimeoutException(Exception):
+    pass
 
+def set_request_timeout(app, timeout_seconds):
+    @app.before_request
+
+def set_request_timeout(app, timeout_seconds):
+    @bp.before_request
+    def before_request():
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+
+    @bp.teardown_request
+    def teardown_request(exception=None):
+        signal.alarm(0)  # Disable the alarm
 def publish_message(message):
     channel = connect_rabbitmq()
     if channel:
@@ -116,9 +135,36 @@ def get_oauth_flow():
         redirect_uri=Config.OAUTH_REDIRECT_URI
     )
 
-# Routes Blueprint
-bp = Blueprint('routes', __name__)  # Use __name__ instead of name
+@bp.route('/test-model', methods=['POST'])
+def test_model():
+    try:
+        # Get the query from the request body
+        user_query = request.json.get('query')
 
+        # Check if query is provided
+        if not user_query:
+            return {"error": "Query is required"}, 400
+
+        # Define ACCESS_TOKEN (replace with actual token retrieval logic)
+        ACCESS_TOKEN = "your_access_token"
+
+        # Use the access token to call the Gemini API
+        headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+        payload = {"query": user_query}
+
+        # Send the request to the Gemini API
+        response = requests.post("https://gemini.api.endpoint/your-model-endpoint", headers=headers, json=payload)
+
+        # Return the model's response
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"error": "Model API call failed", "details": response.json()}, response.status_code
+    except Exception as e:
+        return {"error": str(e)}, 500
+        return {"error": "Model API call failed", "details": response.json()}, response.status_code
+    except Exception as e:
+        return {"error": str(e)}, 500
 @bp.route('/api/v1/chat', methods=['POST'])
 def chat():
     data = request.get_json()
@@ -186,9 +232,17 @@ def create_app():
     db.init_app(app)
     cache.init_app(app)
 
+
+    # configuring  CORS
+    from flask_cors import CORS
+
+    CORS(bp, resources={r"/api/*": {"origins": "https://192.168.1.234:5000"}})
+
+
     # Register blueprint
     app.register_blueprint(bp)
-
+# Set global timeout
+    set_request_timeout(app, 15)
     return app
 
 if __name__ == '__main__':
