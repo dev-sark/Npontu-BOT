@@ -13,11 +13,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Step 5: Copy the rest of the application files into the container
 COPY . .
 
+COPY client_secret.json /app/
 # Step 6: Expose the port your app is running on (Flask's default port is 5000)
 EXPOSE 5000
 
-# Step 7: Set environment variables (optional, if you need them)
+# Step 7: Set environment variables (optional, if you need them)    
 # ENV FLASK_APP=back.py
 
-# Step 8: Run the Flask app (you mentioned you use `python back.py` to start it)
-CMD ["python", "back.py"]
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "back:create_app()"]
+
