@@ -6,13 +6,7 @@ requests==2.31.0
 python-dotenv==1.0.0
 Flask-Caching==2.0.2
 google-generativeai==0.1.0
-
-# Optional: Add testing and WSGI server dependencies
 pytest==7.4.2
 google-auth-oauthlib==1.2.1
 redis==5.0.0
-<<<<<<< HEAD
 gunicorn==23.0.0
-=======
-gunicorn==23.0.0
->>>>>>> e4a28063ea3200107e4210542d5e43cc78313b92
