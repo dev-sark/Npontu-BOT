@@ -7,10 +7,9 @@ WORKDIR /app
 # Step 3: Copy the requirements.txt into the container
 COPY requirements.txt .
 
-# Step 4: Install dependencies in a virtual environment
-RUN python -m venv /opt/venv && \
+# Step 4: Create and activate the virtual environment without relying on shell activation
+RUN python -m venv /opt/venv --copies && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
-
 # Step 5: Add the virtual environment to PATH
 ENV PATH="/opt/venv/bin:$PATH"
 
