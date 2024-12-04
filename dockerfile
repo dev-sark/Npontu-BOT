@@ -7,18 +7,22 @@ WORKDIR /app
 # Step 3: Copy the requirements.txt into the container
 COPY requirements.txt .
 
-# Step 4: Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Step 4: Install dependencies in a virtual environment
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Step 5: Copy the rest of the application files into the container
+# Step 5: Add the virtual environment to PATH
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Step 6: Copy the rest of the application files into the container
 COPY . .
 
-COPY client_secret.json /app/
-# Step 6: Expose the port your app is running on (Flask's default port is 5000)
+# Step 7: Ensure correct permissions for sensitive files
+RUN chmod 644 /app/client_secret.json
+
+# Step 8: Expose the port your app is running on
 EXPOSE 5000
 
-# Step 7: Set environment variables (optional, if you need them)    
-# ENV FLASK_APP=back.py
-
+# Step 9: Set the default command to run the application
 CMD ["gunicorn", "-b", "0.0.0.0:5000", "back:create_app()"]
 
