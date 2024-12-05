@@ -72,29 +72,29 @@ def connect_rabbitmq():
             logging.warning(f"Failed to connect to RabbitMQ: {e}. Retrying...")
             attempts -= 1
     return None
-# Timeout Integration
-class TimeoutException(Exception):
-    pass
-
-def set_request_timeout(app, timeout_seconds):
-    @app.before_request
-
-def set_request_timeout(app, timeout_seconds):
-    @bp.before_request
-    def before_request():
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_seconds)
-
-    @bp.teardown_request
-    def teardown_request(exception=None):
-        signal.alarm(0)  # Disable the alarm
 def publish_message(message):
+
     channel = connect_rabbitmq()
     if channel:
         channel.basic_publish(exchange='', routing_key=Config.RABBITMQ_QUEUE, body=message)
         logging.info(f" [x] Sent '{message}'")
     else:
         logging.error("RabbitMQ connection failed after retries.")
+
+
+        # Middleware for request Timeout
+    class TimeoutException(Exception):
+        pass
+
+    def timeout_handler(signum, frame):
+        @app.before_request
+        def before_request():
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+
+        @app.teardown_request
+        def teardown_request(exception=None):
+            signal.alarm(0)
 
 # Gemini API Integration for Authentication
 def authenticate_with_gemini(user_token):
@@ -220,9 +220,6 @@ def refresh_access_token(refresh_token):
     else:
         return {"error": response.json()}
 
-
-
-
 # Main App
 def create_app():
     app = Flask(__name__)
@@ -232,17 +229,13 @@ def create_app():
     db.init_app(app)
     cache.init_app(app)
 
-
     # configuring  CORS
     from flask_cors import CORS
-
     CORS(bp, resources={r"/api/*": {"origins": "https://192.168.1.234:5000"}})
-
 
     # Register blueprint
     app.register_blueprint(bp)
-# Set global timeout
-    set_request_timeout(app, 15)
+
     return app
 
 if __name__ == '__main__':
