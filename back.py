@@ -10,6 +10,7 @@ import requests
 from dotenv import load_dotenv
 from flask_caching import Cache
 import logging
+import json
 from google_auth_oauthlib.flow import Flow
 from flask_cors import CORS   # Import CORS
 
@@ -36,14 +37,14 @@ class Config:
     
     # Use absolute path for client_secret.json
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get directory of the current script
-    CLIENT_SECRET_FILE = os.path.join(BASE_DIR, "client_secret.json")  # Combine with the file name
-    OAUTH_REDIRECT_URI = "https://jackal-suitable-manatee.ngrok-free.app"
+    CLIENT_SECRET_JSON = os.getenv("CLIENT_SECRET_JSON")  # Load JSON content directly
+    OAUTH_REDIRECT_URI = "https://npontu-bot-production.up.railway.app"
     OAUTH_SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email']
 
 
 # Ensure CLIENT_SECRET_FILE exists
-if not os.path.exists(Config.CLIENT_SECRET_FILE):
-    raise FileNotFoundError(f"CLIENT_SECRET_FILE not found at {Config.CLIENT_SECRET_FILE}")
+if not os.getenv("CLIENT_SECRET_JSON"):
+    raise ValueError("CLIENT_SECRET_JSON environment variable is missing.")
 
 # SQLAlchemy for SQL database
 db = SQLAlchemy()
@@ -72,29 +73,30 @@ def connect_rabbitmq():
             logging.warning(f"Failed to connect to RabbitMQ: {e}. Retrying...")
             attempts -= 1
     return None
-def publish_message(message):
+# Timeout Integration
+class TimeoutException(Exception):
+    pass
+    
+def timeout_handler(signum, frame):
+    raise TimeoutException("Request timed out")
 
+def set_request_timeout(app, timeout_seconds):
+    @app.before_request
+    def before_request():
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+
+    @app.teardown_request
+    def teardown_request(exception=None):
+        signal.alarm(0)  # Disable the alarm
+
+def publish_message(message):
     channel = connect_rabbitmq()
     if channel:
         channel.basic_publish(exchange='', routing_key=Config.RABBITMQ_QUEUE, body=message)
         logging.info(f" [x] Sent '{message}'")
     else:
         logging.error("RabbitMQ connection failed after retries.")
-
-
-        # Middleware for request Timeout
-    class TimeoutException(Exception):
-        pass
-
-    def timeout_handler(signum, frame):
-        @app.before_request
-        def before_request():
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)
-
-        @app.teardown_request
-        def teardown_request(exception=None):
-            signal.alarm(0)
 
 # Gemini API Integration for Authentication
 def authenticate_with_gemini(user_token):
@@ -128,12 +130,19 @@ def handle_token_exchange(authorization_response):
 
 # Google OAuth Integration
 def get_oauth_flow():
-    logging.info(f"Using CLIENT_SECRET_FILE at {Config.CLIENT_SECRET_FILE}")
-    return Flow.from_client_secrets_file(
-        Config.CLIENT_SECRET_FILE,
+    logging.info("Using CLIENT_SECRET_JSON from environment.")
+    try:
+        # Parse the JSON content from the environment variable
+        client_config = json.loads(Config.CLIENT_SECRET_JSON)
+    except Exception as e:
+        raise ValueError(f"Invalid CLIENT_SECRET_JSON in environment: {e}")
+
+    return Flow.from_client_config(
+        client_config,
         scopes=Config.OAUTH_SCOPES,
         redirect_uri=Config.OAUTH_REDIRECT_URI
     )
+
 
 @bp.route('/test-model', methods=['POST'])
 def test_model():
@@ -220,6 +229,9 @@ def refresh_access_token(refresh_token):
     else:
         return {"error": response.json()}
 
+
+
+
 # Main App
 def create_app():
     app = Flask(__name__)
@@ -229,15 +241,20 @@ def create_app():
     db.init_app(app)
     cache.init_app(app)
 
-    # configuring  CORS
+    # Configuring CORS dynamically (use Railway or production domains if necessary)
     from flask_cors import CORS
-    CORS(bp, resources={r"/api/*": {"origins": "https://192.168.1.234:5000"}})
+    CORS(app, resources={r"/api/*": {"origins": os.getenv("CORS_ORIGIN", "*")}})
 
     # Register blueprint
     app.register_blueprint(bp)
+
+    # Set global timeout
+    set_request_timeout(app, int(os.getenv("REQUEST_TIMEOUT", 15)))
 
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5000)  # Specify the host and port
+    # Use Railway-provided PORT or fallback to 5000 if not set
+    port = int(os.getenv("PORT", "5000"))
+    app.run(debug=True, host='0.0.0.0', port=port)
